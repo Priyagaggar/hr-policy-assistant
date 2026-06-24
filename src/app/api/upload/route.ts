@@ -41,7 +41,17 @@ export async function POST(req: NextRequest) {
     const chunkTexts = chunks.map((c) => c.text);
     const embeddings = await embedBatch(chunkTexts);
 
-    // Form vectors for Pinecone
+    const mimeType = isPdf
+      ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+    // Encode the raw file as base64 so it can be retrieved for download later.
+    // We attach it only to the FIRST chunk's metadata to avoid storing it
+    // repeatedly across all chunks. The /api/document route fetches by
+    // chunkIndex === 0 to retrieve it.
+    const base64Content = buffer.toString('base64');
+
+    // Build vectors — attach base64 only to chunkIndex 0
     const vectors = chunks.map((chunk, index) => ({
       id: chunk.id,
       values: embeddings[index],
@@ -51,42 +61,15 @@ export async function POST(req: NextRequest) {
         pageNumber: chunk.metadata.pageNumber,
         chunkIndex: chunk.metadata.chunkIndex,
         type: 'chunk',
+        // Only store the raw file on the first chunk to keep other records lean
+        ...(chunk.metadata.chunkIndex === 0
+          ? { base64Content, mimeType }
+          : {}),
       },
     }));
 
-    const indexInstance = getPineconeIndex();
-
-    // Store a special "file manifest" record in Pinecone with the raw file
-    // as a base64 string so it can be retrieved and served for download.
-    // Pinecone requires at least one non-zero value, so we use a tiny unique
-    // fingerprint vector. The values are so small that cosine similarity with
-    // any real query embedding will be essentially zero — it will never surface
-    // in semantic search results.
-    const VECTOR_DIMENSION = 768;
-    const manifestVector = new Array(VECTOR_DIMENSION).fill(0);
-    // Set a few positions to tiny distinct non-zero values as a fingerprint
-    manifestVector[0] = 1e-9;
-    manifestVector[1] = 2e-9;
-    manifestVector[2] = 3e-9;
-
-    const base64Content = buffer.toString('base64');
-    const mimeType = isPdf ? 'application/pdf'
-      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-    await indexInstance.upsert({
-      records: [{
-        id: `__manifest__${filename}`,
-        values: manifestVector,
-        metadata: {
-          type: 'manifest',
-          filename,
-          mimeType,
-          base64Content,
-        },
-      }]
-    });
-
     // Upsert chunk vectors in batches of 100
+    const indexInstance = getPineconeIndex();
     const batchSize = 100;
     for (let i = 0; i < vectors.length; i += batchSize) {
       const batch = vectors.slice(i, i + batchSize);
@@ -111,15 +94,12 @@ export async function DELETE(req: NextRequest) {
 
     const indexInstance = getPineconeIndex();
 
-    // Delete all chunk vectors for this file
+    // Delete all chunk vectors for this file (including the one with base64Content)
     await indexInstance.deleteMany({
       filter: {
         filename: { $eq: filename }
       }
     });
-
-    // Also delete the manifest record
-    await indexInstance.deleteMany({ ids: [`__manifest__${filename}`] });
 
     return NextResponse.json({ success: true, filename });
   } catch (error: any) {

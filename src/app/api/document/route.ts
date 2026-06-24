@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPineconeIndex } from '@/lib/pinecone';
+import { embedText } from '@/lib/embeddings';
+import { TaskType } from '@google/generative-ai';
 
 /**
  * GET /api/document?filename=FILENAME
  *
- * Fetches the file manifest record from Pinecone and serves
- * the original uploaded document as a downloadable binary response.
+ * Retrieves the original uploaded document and serves it as a download.
+ * The base64-encoded file content is stored in the metadata of the
+ * first chunk (chunkIndex === 0) for this filename in Pinecone.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -13,26 +16,40 @@ export async function GET(req: NextRequest) {
     const filename = searchParams.get('filename');
 
     if (!filename) {
-      return NextResponse.json({ error: 'filename query parameter is required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'filename query parameter is required' },
+        { status: 400 }
+      );
     }
 
     const indexInstance = getPineconeIndex();
 
-    // Fetch the manifest record by its deterministic ID
-    const manifestId = `__manifest__${filename}`;
-    const fetchResponse = await indexInstance.fetch({ ids: [manifestId] });
+    // Query Pinecone for the first chunk of this file which holds the base64Content.
+    // We embed a simple query and filter by filename + chunkIndex === 0.
+    // Since we only need metadata, we use a neutral embedding via a short query.
+    const queryEmbedding = await embedText(filename, TaskType.RETRIEVAL_QUERY);
 
-    const record = fetchResponse.records?.[manifestId];
+    const queryResponse = await indexInstance.query({
+      vector: queryEmbedding,
+      topK: 1,
+      includeMetadata: true,
+      filter: {
+        filename: { $eq: filename },
+        chunkIndex: { $eq: 0 },
+      },
+    });
 
-    if (!record || !record.metadata?.base64Content) {
+    const match = queryResponse.matches?.[0];
+
+    if (!match || !match.metadata?.base64Content) {
       return new NextResponse(
-        `Document "${filename}" not found. It may not have been uploaded yet, or may need to be re-uploaded.`,
+        `Document "${filename}" not found. Please re-upload it from the Admin panel.`,
         { status: 404, headers: { 'Content-Type': 'text/plain' } }
       );
     }
 
-    const base64Content = record.metadata.base64Content as string;
-    const mimeType = (record.metadata.mimeType as string) || 'application/octet-stream';
+    const base64Content = match.metadata.base64Content as string;
+    const mimeType = (match.metadata.mimeType as string) || 'application/octet-stream';
     const fileBuffer = Buffer.from(base64Content, 'base64');
 
     return new NextResponse(fileBuffer, {
