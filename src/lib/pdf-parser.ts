@@ -1,3 +1,11 @@
+// Polyfill DOMMatrix for Node.js / Serverless environments where it is undefined.
+if (typeof global !== 'undefined' && !(global as any).DOMMatrix) {
+  (global as any).DOMMatrix = class DOMMatrix {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+    constructor() {}
+  };
+}
+
 import { PDFParse } from 'pdf-parse';
 import { Chunk } from '../types';
 
