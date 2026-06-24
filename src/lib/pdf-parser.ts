@@ -1,18 +1,31 @@
-// Polyfill DOMMatrix for Node.js / Serverless environments where it is undefined.
-if (typeof global !== 'undefined' && !(global as any).DOMMatrix) {
-  (global as any).DOMMatrix = class DOMMatrix {
-    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
-    constructor() {}
-  };
-}
-
-import { PDFParse } from 'pdf-parse';
 import { Chunk } from '../types';
-
 import path from 'path';
 import { pathToFileURL } from 'url';
 
 export async function extractAndChunk(buffer: Buffer, filename: string): Promise<Chunk[]> {
+  // Polyfill DOMMatrix BEFORE dynamically importing pdf-parse.
+  // Static `import` statements are hoisted and evaluated before any code runs,
+  // so placing a polyfill above them has no effect. Using a dynamic import()
+  // inside the function ensures the polyfill is applied first.
+  if (typeof global !== 'undefined' && !(global as any).DOMMatrix) {
+    (global as any).DOMMatrix = class DOMMatrix {
+      a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+      m11 = 1; m12 = 0; m13 = 0; m14 = 0;
+      m21 = 0; m22 = 1; m23 = 0; m24 = 0;
+      m31 = 0; m32 = 0; m33 = 1; m34 = 0;
+      m41 = 0; m42 = 0; m43 = 0; m44 = 1;
+      constructor(_init?: string | number[]) {}
+      invertSelf() { return this; }
+      multiplySelf() { return this; }
+      translateSelf() { return this; }
+      scaleSelf() { return this; }
+      rotateSelf() { return this; }
+    };
+  }
+
+  // Dynamic import AFTER polyfill is in place
+  const { PDFParse } = await import('pdf-parse');
+
   const workerPath = path.resolve(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
   PDFParse.setWorker(pathToFileURL(workerPath).toString());
   const parser = new PDFParse({ data: buffer });
@@ -28,7 +41,7 @@ export async function extractAndChunk(buffer: Buffer, filename: string): Promise
       if (!text) continue;
 
       // Split on ". "
-      const sentences = text.split(/\. /g).map(s => s.trim()).filter(Boolean);
+      const sentences = text.split(/\. /g).map((s: string) => s.trim()).filter(Boolean);
       if (sentences.length === 0) continue;
 
       let currentChunkText = '';
@@ -52,7 +65,6 @@ export async function extractAndChunk(buffer: Buffer, filename: string): Promise
         if (candidate.length <= 500) {
           currentChunkText = candidate;
         } else {
-          // Save current chunk if it has content
           if (currentChunkText) {
             const chunkSentences = currentChunkText.split(/\. /g);
             lastSentenceOfPreviousChunk = chunkSentences[chunkSentences.length - 1] || '';
@@ -69,7 +81,6 @@ export async function extractAndChunk(buffer: Buffer, filename: string): Promise
             chunkIndex++;
           }
 
-          // Start new chunk with current sentence (prepending the overlap sentence if possible)
           if (lastSentenceOfPreviousChunk) {
             const overlapCandidate = lastSentenceOfPreviousChunk + '. ' + sentence;
             if (overlapCandidate.length <= 500) {
