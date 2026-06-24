@@ -50,11 +50,35 @@ export async function POST(req: NextRequest) {
         filename: chunk.metadata.filename,
         pageNumber: chunk.metadata.pageNumber,
         chunkIndex: chunk.metadata.chunkIndex,
+        type: 'chunk',
       },
     }));
 
-    // Upsert into Pinecone in batches of 100
     const indexInstance = getPineconeIndex();
+
+    // Store a special "file manifest" record in Pinecone with the raw file
+    // as a base64 string so it can be retrieved and served for download.
+    // We use a zero-vector so it never accidentally surfaces in semantic search.
+    const VECTOR_DIMENSION = 768;
+    const zeroVector = new Array(VECTOR_DIMENSION).fill(0);
+    const base64Content = buffer.toString('base64');
+    const mimeType = isPdf ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+    await indexInstance.upsert({
+      records: [{
+        id: `__manifest__${filename}`,
+        values: zeroVector,
+        metadata: {
+          type: 'manifest',
+          filename,
+          mimeType,
+          base64Content,
+        },
+      }]
+    });
+
+    // Upsert chunk vectors in batches of 100
     const batchSize = 100;
     for (let i = 0; i < vectors.length; i += batchSize) {
       const batch = vectors.slice(i, i + batchSize);
@@ -79,11 +103,15 @@ export async function DELETE(req: NextRequest) {
 
     const indexInstance = getPineconeIndex();
 
+    // Delete all chunk vectors for this file
     await indexInstance.deleteMany({
       filter: {
         filename: { $eq: filename }
       }
     });
+
+    // Also delete the manifest record
+    await indexInstance.deleteOne(`__manifest__${filename}`);
 
     return NextResponse.json({ success: true, filename });
   } catch (error: any) {

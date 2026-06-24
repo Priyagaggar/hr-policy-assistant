@@ -56,7 +56,7 @@ Rules:
 - Structure your answer comprehensively using multiple paragraphs, clear headings, or bullet points. Avoid writing a single, overly short block of text.
 - Insert inline citations in your answer like "[1]", "[2]", "[3]" etc. representing the Context Block index that supports the preceding sentence, fact, or completed point.
 - Do not place citation tags on every single line or word. Only place them at the end of key sentences, facts, or bullet points to reference where that information came from.
-- If the employee asks to download, view, open, or get the original PDF, document, or policy file, provide a direct download link using the path "/uploads/" followed by the exact filename of the document (e.g. "[Download Document](/uploads/FILENAME)" or "[View PDF](/uploads/FILENAME)"). Only provide download links for files that are explicitly present in the provided context blocks.
+- If the employee asks to download, view, open, or get the original PDF, document, or policy file, provide a direct download link using the path "/api/document?filename=" followed by the exact filename of the document (e.g. "[Download Document](/api/document?filename=FILENAME)" or "[View PDF](/api/document?filename=FILENAME)"). Only provide download links for files that are explicitly present in the provided context blocks.
 - Do not make up information.
 
 Policy Context Blocks:
