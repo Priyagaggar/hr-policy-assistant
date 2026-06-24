@@ -58,9 +58,17 @@ export async function POST(req: NextRequest) {
 
     // Store a special "file manifest" record in Pinecone with the raw file
     // as a base64 string so it can be retrieved and served for download.
-    // We use a zero-vector so it never accidentally surfaces in semantic search.
+    // Pinecone requires at least one non-zero value, so we use a tiny unique
+    // fingerprint vector. The values are so small that cosine similarity with
+    // any real query embedding will be essentially zero — it will never surface
+    // in semantic search results.
     const VECTOR_DIMENSION = 768;
-    const zeroVector = new Array(VECTOR_DIMENSION).fill(0);
+    const manifestVector = new Array(VECTOR_DIMENSION).fill(0);
+    // Set a few positions to tiny distinct non-zero values as a fingerprint
+    manifestVector[0] = 1e-9;
+    manifestVector[1] = 2e-9;
+    manifestVector[2] = 3e-9;
+
     const base64Content = buffer.toString('base64');
     const mimeType = isPdf ? 'application/pdf'
       : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -68,7 +76,7 @@ export async function POST(req: NextRequest) {
     await indexInstance.upsert({
       records: [{
         id: `__manifest__${filename}`,
-        values: zeroVector,
+        values: manifestVector,
         metadata: {
           type: 'manifest',
           filename,

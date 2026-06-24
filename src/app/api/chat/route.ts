@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
       vector: questionEmbedding,
       topK: 15,
       includeMetadata: true,
+      filter: { type: { $eq: 'chunk' } },
     });
 
     // 3. Extract matches & filter out any with score below 0.55
