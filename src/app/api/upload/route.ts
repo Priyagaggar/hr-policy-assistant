@@ -111,7 +111,7 @@ export async function DELETE(req: NextRequest) {
     });
 
     // Also delete the manifest record
-    await indexInstance.deleteOne(`__manifest__${filename}`);
+    await indexInstance.deleteMany({ ids: [`__manifest__${filename}`] });
 
     return NextResponse.json({ success: true, filename });
   } catch (error: any) {
