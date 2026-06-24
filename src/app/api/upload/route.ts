@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { put, del } from '@vercel/blob';
 import { extractAndChunk } from '@/lib/pdf-parser';
 import { extractAndChunkDocx } from '@/lib/docx-parser';
 import { embedBatch } from '@/lib/embeddings';
@@ -25,7 +26,16 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
     const filename = file.name;
 
-    // Parse and chunk directly from the in-memory buffer
+    // 1. Upload file to Vercel Blob for persistent storage & download access
+    const blob = await put(filename, buffer, {
+      access: 'public',
+      contentType: isPdf
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const blobUrl = blob.url;
+
+    // 2. Parse and chunk directly from the in-memory buffer
     let chunks = [];
     if (isPdf) {
       chunks = await extractAndChunk(buffer, filename);
@@ -37,21 +47,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, filename, chunkCount: 0 });
     }
 
-    // Embed chunk text
+    // 3. Embed chunk text
     const chunkTexts = chunks.map((c) => c.text);
     const embeddings = await embedBatch(chunkTexts);
 
-    const mimeType = isPdf
-      ? 'application/pdf'
-      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-    // Encode the raw file as base64 so it can be retrieved for download later.
-    // We attach it only to the FIRST chunk's metadata to avoid storing it
-    // repeatedly across all chunks. The /api/document route fetches by
-    // chunkIndex === 0 to retrieve it.
-    const base64Content = buffer.toString('base64');
-
-    // Build vectors — attach base64 only to chunkIndex 0
+    // 4. Build Pinecone vectors — store the Blob URL only on the first chunk
+    //    so it can be retrieved for download without exceeding metadata size limits
     const vectors = chunks.map((chunk, index) => ({
       id: chunk.id,
       values: embeddings[index],
@@ -61,14 +62,11 @@ export async function POST(req: NextRequest) {
         pageNumber: chunk.metadata.pageNumber,
         chunkIndex: chunk.metadata.chunkIndex,
         type: 'chunk',
-        // Only store the raw file on the first chunk to keep other records lean
-        ...(chunk.metadata.chunkIndex === 0
-          ? { base64Content, mimeType }
-          : {}),
+        ...(chunk.metadata.chunkIndex === 0 ? { blobUrl } : {}),
       },
     }));
 
-    // Upsert chunk vectors in batches of 100
+    // 5. Upsert into Pinecone in batches of 100
     const indexInstance = getPineconeIndex();
     const batchSize = 100;
     for (let i = 0; i < vectors.length; i += batchSize) {
@@ -94,11 +92,29 @@ export async function DELETE(req: NextRequest) {
 
     const indexInstance = getPineconeIndex();
 
-    // Delete all chunk vectors for this file (including the one with base64Content)
-    await indexInstance.deleteMany({
-      filter: {
-        filename: { $eq: filename }
+    // Retrieve the blobUrl from the first chunk before deleting
+    try {
+      const queryEmbedding = new Array(768).fill(0.001);
+      const queryResponse = await indexInstance.query({
+        vector: queryEmbedding,
+        topK: 1,
+        includeMetadata: true,
+        filter: {
+          filename: { $eq: filename },
+          chunkIndex: { $eq: 0 },
+        },
+      });
+      const blobUrl = queryResponse.matches?.[0]?.metadata?.blobUrl as string | undefined;
+      if (blobUrl) {
+        await del(blobUrl);
       }
+    } catch (blobErr) {
+      console.warn('Could not delete blob (may not exist):', blobErr);
+    }
+
+    // Delete all Pinecone vectors for this file
+    await indexInstance.deleteMany({
+      filter: { filename: { $eq: filename } },
     });
 
     return NextResponse.json({ success: true, filename });

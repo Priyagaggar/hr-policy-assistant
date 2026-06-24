@@ -6,9 +6,8 @@ import { TaskType } from '@google/generative-ai';
 /**
  * GET /api/document?filename=FILENAME
  *
- * Retrieves the original uploaded document and serves it as a download.
- * The base64-encoded file content is stored in the metadata of the
- * first chunk (chunkIndex === 0) for this filename in Pinecone.
+ * Looks up the Vercel Blob URL stored in the first chunk's metadata
+ * and redirects the browser to it for download.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -24,11 +23,8 @@ export async function GET(req: NextRequest) {
 
     const indexInstance = getPineconeIndex();
 
-    // Query Pinecone for the first chunk of this file which holds the base64Content.
-    // We embed a simple query and filter by filename + chunkIndex === 0.
-    // Since we only need metadata, we use a neutral embedding via a short query.
+    // Query for the first chunk of this file which holds the blobUrl
     const queryEmbedding = await embedText(filename, TaskType.RETRIEVAL_QUERY);
-
     const queryResponse = await indexInstance.query({
       vector: queryEmbedding,
       topK: 1,
@@ -39,28 +35,17 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const match = queryResponse.matches?.[0];
+    const blobUrl = queryResponse.matches?.[0]?.metadata?.blobUrl as string | undefined;
 
-    if (!match || !match.metadata?.base64Content) {
+    if (!blobUrl) {
       return new NextResponse(
         `Document "${filename}" not found. Please re-upload it from the Admin panel.`,
         { status: 404, headers: { 'Content-Type': 'text/plain' } }
       );
     }
 
-    const base64Content = match.metadata.base64Content as string;
-    const mimeType = (match.metadata.mimeType as string) || 'application/octet-stream';
-    const fileBuffer = Buffer.from(base64Content, 'base64');
-
-    return new NextResponse(fileBuffer, {
-      status: 200,
-      headers: {
-        'Content-Type': mimeType,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': fileBuffer.length.toString(),
-        'Cache-Control': 'private, max-age=3600',
-      },
-    });
+    // Redirect directly to the public Vercel Blob URL
+    return NextResponse.redirect(blobUrl);
   } catch (error: any) {
     console.error('Document fetch error:', error);
     return NextResponse.json(
