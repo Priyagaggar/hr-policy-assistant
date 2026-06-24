@@ -3,8 +3,6 @@ import { extractAndChunk } from '@/lib/pdf-parser';
 import { extractAndChunkDocx } from '@/lib/docx-parser';
 import { embedBatch } from '@/lib/embeddings';
 import { getPineconeIndex } from '@/lib/pinecone';
-import fs from 'fs';
-import path from 'path';
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,14 +25,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
     const filename = file.name;
 
-    // Physically save the file in the public/uploads directory
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    fs.writeFileSync(path.join(uploadsDir, filename), buffer);
-
-    // Parse and chunk
+    // Parse and chunk directly from the in-memory buffer
     let chunks = [];
     if (isPdf) {
       chunks = await extractAndChunk(buffer, filename);
@@ -93,12 +84,6 @@ export async function DELETE(req: NextRequest) {
         filename: { $eq: filename }
       }
     });
-
-    // Delete the file physically from the public/uploads directory
-    const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
 
     return NextResponse.json({ success: true, filename });
   } catch (error: any) {
