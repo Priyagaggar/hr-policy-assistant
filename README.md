@@ -2,6 +2,8 @@
 
 An AI-powered HR Chatbot designed to help employees instantly query and understand company policy documents (PDF, DOCX). It utilizes RAG (Retrieval-Augmented Generation) to deliver accurate, context-aware answers coupled with precise page-level and paragraph-level citations.
 
+🔗 **Live Demo**: [https://hr-policy-assistant-five.vercel.app](https://hr-policy-assistant-five.vercel.app)
+
 ---
 
 ## 🏗️ Architecture
@@ -22,7 +24,7 @@ An AI-powered HR Chatbot designed to help employees instantly query and understa
 | **Core Framework** | Next.js 16 (App Router) | React framework for frontend and serverless API routes |
 | **Styling** | Tailwind CSS v4 | Custom variables + dark-mode support |
 | **Vector Database** | Pinecone | Cloud-hosted vector database for fast semantic matching |
-| **AI Models** | Google Gemini (1.5 Flash) | For generating embeddings and synthesis of conversational answers |
+| **AI Models** | Google Gemini (2.0 Flash) | For generating embeddings and synthesis of conversational answers |
 | **Document Parsers** | `pdf-parse` & `mammoth` | For extracting text from PDF and Word (.docx) files |
 
 ---
@@ -46,6 +48,7 @@ Create a `.env.local` file in the root directory:
 GEMINI_API_KEY=your_gemini_api_key
 PINECONE_API_KEY=your_pinecone_api_key
 PINECONE_INDEX_NAME=hr-policies
+BLOB_READ_WRITE_TOKEN=your_vercel_blob_token
 ```
 
 ### 3. Install & Start Dev Server
