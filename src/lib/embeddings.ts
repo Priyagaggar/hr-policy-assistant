@@ -23,8 +23,7 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
   for (const text of texts) {
     const embedding = await embedText(text, TaskType.RETRIEVAL_DOCUMENT);
     embeddings.push(embedding);
-    // 100ms delay to avoid rate limits
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return embeddings;
 }
