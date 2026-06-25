@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     // 1. Upload file to Vercel Blob for persistent storage & download access
     const blob = await put(filename, buffer, {
       access: 'public',
+      allowOverwrite: true,
       contentType: isPdf
         ? 'application/pdf'
         : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
