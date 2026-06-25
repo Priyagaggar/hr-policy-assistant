@@ -1,4 +1,4 @@
-# Adani HR Policy Assistant 💬
+# HR Policy Assistant 💬
 
 An AI-powered HR Chatbot designed to help employees instantly query and understand company policy documents (PDF, DOCX). It utilizes RAG (Retrieval-Augmented Generation) to deliver accurate, context-aware answers coupled with precise page-level and paragraph-level citations.
 
