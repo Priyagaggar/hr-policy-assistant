@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# policy demo documents (kept locally, not needed in repo)
+public/demo files/
+public/demo-docs/
