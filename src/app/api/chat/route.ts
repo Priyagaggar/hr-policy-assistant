@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPineconeIndex } from '@/lib/pinecone';
 import { embedText, EmbedTaskType } from '@/lib/embeddings';
-import { ai, CHAT_MODEL } from '@/lib/gemini';
+import Groq from 'groq-sdk';
 import { Source } from '@/types';
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const CHAT_MODEL = 'llama-3.3-70b-versatile';
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,8 +58,9 @@ Rules:
 - If the answer is not in the context, output exactly "I could not find information about this in the available policy documents. Please contact HR directly." as the answer.
 - Structure your answer comprehensively using multiple paragraphs, clear headings, or bullet points. Avoid writing a single, overly short block of text.
 - Insert inline citations in your answer like "[1]", "[2]", "[3]" etc. representing the Context Block index that supports the preceding sentence, fact, or completed point.
+- When citing multiple sources for the same point, write them with a comma inside one bracket like "[2, 3]" — never write "[2][3]" or "[2] [3]".
 - Do not place citation tags on every single line or word. Only place them at the end of key sentences, facts, or bullet points to reference where that information came from.
-- If the employee asks to download, view, open, or get the original PDF, document, or policy file, provide a direct download link using the path "/api/document?filename=" followed by the exact filename of the document (e.g. "[Download Document](/api/document?filename=FILENAME)" or "[View PDF](/api/document?filename=FILENAME)"). Only provide download links for files that are explicitly present in the provided context blocks.
+- IMPORTANT: At the end of your answer, add a "📄 Download Policy Document" section. Include download links ONLY for documents you actually cited in your answer using inline citations like [1], [2] etc. Do not include documents that were not cited. Format each link as: [Download Policy Document](/api/document?filename=FILENAME) where FILENAME is the exact filename. If only one document was cited, show only one link. Never show links for uncited documents.
 - Do not make up information.
 
 Policy Context Blocks:
@@ -68,56 +72,40 @@ Return your response as a JSON object with the following schema:
 {
   "answer": "The text answer here including inline citations like [1] or [2]",
   "usedCitations": [1, 2] // Array of numbers representing the Context Block index numbers that you actually used in the answer (e.g. [1, 2]). If you could not find the answer, leave this array empty.
-}
-`;
+}`;
 
-    // 7. Call Gemini to generate answer with retry mechanism and JSON response type
-    let result;
-    const maxRetries = 3;
-    let backoffDelay = 1000;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        result = await ai.models.generateContent({
-          model: CHAT_MODEL,
-          contents: prompt,
-          config: { responseMimeType: 'application/json' },
-        });
-        break; // Success, break retry loop
-      } catch (err: any) {
-        const errorMsg = err.message || '';
-        const isTransient = errorMsg.includes('503') || errorMsg.includes('429') || errorMsg.includes('Service Unavailable') || errorMsg.includes('Too Many Requests');
-
-        if (attempt < maxRetries && isTransient) {
-          console.warn(`Gemini API transient error (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${backoffDelay}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-          backoffDelay *= 2;
-        } else {
-          throw err;
-        }
-      }
-    }
+    // 7. Call Groq to generate answer
+    const completion = await groq.chat.completions.create({
+      model: CHAT_MODEL,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 2048,
+      response_format: { type: 'json_object' },
+    });
+    const result = { text: completion.choices[0].message.content ?? '' };
 
     let answer = 'I was unable to get a response from the service. Please try again.';
     let usedCitations: number[] = [];
 
-    if (result) {
-      try {
-        const text = result.text ?? '';
-        const parsed = JSON.parse(text);
-        answer = parsed.answer || '';
-        usedCitations = parsed.usedCitations || [];
-      } catch (e) {
-        console.error('Failed to parse JSON response from Gemini:', e);
-        // Fallback in case JSON parsing fails
-        answer = result.text ?? '';
-        // Parse indices using regex if JSON failed
-        const matchesIterator = answer.matchAll(/\[(\d+)\]/g);
-        for (const m of matchesIterator) {
-          const num = parseInt(m[1], 10);
-          if (!usedCitations.includes(num)) {
-            usedCitations.push(num);
-          }
+    const rawContent = typeof result.text === 'string' ? result.text : '';
+    // Strip markdown code fences (```json ... ```) that LLMs sometimes wrap around JSON
+    const cleanContent = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    try {
+      const parsed = JSON.parse(cleanContent);
+      answer = parsed.answer || '';
+      // Guard: LLM may return usedCitations as a number instead of array
+      usedCitations = Array.isArray(parsed.usedCitations) ? parsed.usedCitations : [];
+    } catch (e) {
+      console.error('Failed to parse JSON response from Groq:', e);
+      // Fallback in case JSON parsing fails
+      answer = cleanContent;
+      // Parse inline citation indices using regex
+      const matchesIterator = answer.matchAll(/\[(\d+)\]/g);
+      for (const m of matchesIterator) {
+        const num = parseInt(m[1], 10);
+        if (!usedCitations.includes(num)) {
+          usedCitations.push(num);
         }
       }
     }

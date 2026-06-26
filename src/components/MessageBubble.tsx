@@ -9,14 +9,14 @@ interface MessageBubbleProps {
 }
 
 function parseTextContent(text: string, sources: Source[], expandReferences: () => void): React.ReactNode[] {
-  // Regex to match bold text **bold**, citation tags like [1], or markdown links [link](url)
-  const regex = /(\*\*.*?\*\*|\[\d+\]|\[[^\]]+\]\([^)]+\))/g;
+  // Regex to match bold text **bold**, citation tags like [1] or [1, 2, 3], or markdown links [link](url)
+  const regex = /(\*\*.*?\*\*|\[\d+(?:,\s*\d+)*\]|\[[^\]]+\]\([^)]+\))/g;
   const parts = text.split(regex);
 
-  return parts.map((part, idx) => {
+  return parts.flatMap((part, idx) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       const boldVal = part.slice(2, -2);
-      return <strong key={idx} className="font-bold text-slate-900 dark:text-white">{boldVal}</strong>;
+      return [<strong key={idx} className="font-bold text-slate-900 dark:text-white">{boldVal}</strong>];
     }
 
     if (part.startsWith('[') && part.includes('](') && part.endsWith(')')) {
@@ -24,7 +24,7 @@ function parseTextContent(text: string, sources: Source[], expandReferences: () 
       if (linkMatch) {
         const linkText = linkMatch[1];
         const linkUrl = linkMatch[2];
-        return (
+        return [(
           <a
             key={idx}
             href={linkUrl}
@@ -37,44 +37,49 @@ function parseTextContent(text: string, sources: Source[], expandReferences: () 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
           </a>
-        );
+        )];
       }
     }
 
-    const citationMatch = part.match(/^\[(\d+)\]$/);
-    if (citationMatch) {
-      const indexNum = parseInt(citationMatch[1], 10);
-      const source = sources.find(s => s.index === indexNum);
-      if (source) {
-        return (
-          <button
-            key={idx}
-            type="button"
-            className="inline-flex items-center justify-center bg-blue-100 dark:bg-blue-900/60 hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-full w-4.5 h-4.5 text-[9px] font-extrabold mx-0.5 align-super cursor-pointer transition-all active:scale-95 shadow-sm shadow-blue-100/50"
-            title={`${source.filename} (Page ${source.pageNumber})`}
-            onClick={() => {
-              expandReferences();
-              setTimeout(() => {
-                const el = document.getElementById(`source-ref-${indexNum}`);
-                if (el) {
-                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  el.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50/50');
-                  setTimeout(() => {
-                    el.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50/50');
-                  }, 2000);
-                }
-              }, 150);
-            }}
-          >
-            {indexNum}
-          </button>
-        );
-      }
+    // Match [1] or [1, 2, 3] citation formats
+    const multiCitationMatch = part.match(/^\[(\d+(?:,\s*\d+)*)\]$/);
+    if (multiCitationMatch) {
+      const nums = multiCitationMatch[1].split(',').map(n => parseInt(n.trim(), 10));
+      return nums.map((indexNum, i) => {
+        const source = sources.find(s => s.index === indexNum);
+        if (source) {
+          return (
+            <button
+              key={`${idx}-${i}`}
+              type="button"
+              className="inline-flex items-center justify-center bg-blue-100 dark:bg-blue-900/60 hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-full w-4.5 h-4.5 text-[9px] font-extrabold mx-0.5 align-super cursor-pointer transition-all active:scale-95 shadow-sm shadow-blue-100/50"
+              title={`${source.filename} (Page ${source.pageNumber})`}
+              onClick={() => {
+                expandReferences();
+                setTimeout(() => {
+                  const el = document.getElementById(`source-ref-${indexNum}`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50/50');
+                    setTimeout(() => {
+                      el.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50/50');
+                    }, 2000);
+                  }
+                }, 150);
+              }}
+            >
+              {indexNum}
+            </button>
+          );
+        }
+        return null;
+      }).filter(Boolean) as React.ReactNode[];
     }
 
-    return part;
+    return [part];
   });
 }
+
 
 function formatMessageContent(content: string, sources: Source[], expandReferences: () => void) {
   const lines = content.split('\n');
