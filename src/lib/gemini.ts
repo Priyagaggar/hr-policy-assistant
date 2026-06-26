@@ -1,10 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-const apiKey = process.env.GEMINI_API_KEY;
-
-if (!apiKey) {
-  throw new Error('GEMINI_API_KEY is not defined in environment variables.');
-}
+const apiKey = process.env.GEMINI_API_KEY || '';
 
 export const ai = new GoogleGenAI({ apiKey });
 export const EMBEDDING_MODEL = 'gemini-embedding-001';
