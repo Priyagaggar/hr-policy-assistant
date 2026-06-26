@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPineconeIndex } from '@/lib/pinecone';
-import { embedText } from '@/lib/embeddings';
-import { TaskType } from '@google/generative-ai';
+import { embedText, EmbedTaskType } from '@/lib/embeddings';
 
 /**
  * GET /api/document?filename=FILENAME
@@ -24,7 +23,7 @@ export async function GET(req: NextRequest) {
     const indexInstance = getPineconeIndex();
 
     // Query for the first chunk of this file which holds the blobUrl
-    const queryEmbedding = await embedText(filename, TaskType.RETRIEVAL_QUERY);
+    const queryEmbedding = await embedText(filename, 'RETRIEVAL_QUERY' as EmbedTaskType);
     const queryResponse = await indexInstance.query({
       vector: queryEmbedding,
       topK: 1,

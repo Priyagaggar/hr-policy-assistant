@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -6,7 +6,7 @@ if (!apiKey) {
   throw new Error('GEMINI_API_KEY is not defined in environment variables.');
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
+export const ai = new GoogleGenAI({ apiKey });
 
-export const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-export const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+export const CHAT_MODEL = 'gemini-2.0-flash';
+export const EMBEDDING_MODEL = 'gemini-embedding-001';

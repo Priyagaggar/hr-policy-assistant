@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPineconeIndex } from '@/lib/pinecone';
-import { embedText } from '@/lib/embeddings';
-import { geminiModel } from '@/lib/gemini';
-import { TaskType } from '@google/generative-ai';
+import { embedText, EmbedTaskType } from '@/lib/embeddings';
+import { ai, CHAT_MODEL } from '@/lib/gemini';
 import { Source } from '@/types';
 
 export async function POST(req: NextRequest) {
@@ -15,7 +14,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Embed the user question
-    const questionEmbedding = await embedText(question, TaskType.RETRIEVAL_QUERY);
+    const questionEmbedding = await embedText(question, 'RETRIEVAL_QUERY' as EmbedTaskType);
 
     // 2. Query Pinecone
     const index = getPineconeIndex();
@@ -76,18 +75,19 @@ Return your response as a JSON object with the following schema:
     let result;
     const maxRetries = 3;
     let backoffDelay = 1000;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        result = await geminiModel.generateContent({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
+        result = await ai.models.generateContent({
+          model: CHAT_MODEL,
+          contents: prompt,
+          config: { responseMimeType: 'application/json' },
         });
         break; // Success, break retry loop
       } catch (err: any) {
         const errorMsg = err.message || '';
         const isTransient = errorMsg.includes('503') || errorMsg.includes('429') || errorMsg.includes('Service Unavailable') || errorMsg.includes('Too Many Requests');
-        
+
         if (attempt < maxRetries && isTransient) {
           console.warn(`Gemini API transient error (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${backoffDelay}ms...`);
           await new Promise((resolve) => setTimeout(resolve, backoffDelay));
@@ -103,14 +103,14 @@ Return your response as a JSON object with the following schema:
 
     if (result) {
       try {
-        const text = result.response.text();
+        const text = result.text ?? '';
         const parsed = JSON.parse(text);
         answer = parsed.answer || '';
         usedCitations = parsed.usedCitations || [];
       } catch (e) {
         console.error('Failed to parse JSON response from Gemini:', e);
         // Fallback in case JSON parsing fails
-        answer = result.response.text();
+        answer = result.text ?? '';
         // Parse indices using regex if JSON failed
         const matchesIterator = answer.matchAll(/\[(\d+)\]/g);
         for (const m of matchesIterator) {
